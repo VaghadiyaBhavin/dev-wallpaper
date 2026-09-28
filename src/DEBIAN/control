@@ -1,0 +1,15 @@
+Package: dev-wallpaper
+Version: 1.0.1
+Section: x11
+Priority: optional
+Architecture: all
+Depends: python3, python3-pil, fonts-dejavu-mono | fonts-dejavu-core, libglib2.0-bin, systemd, bash
+Recommends: zenity
+Maintainer: Bhavin Vaghadiya <vaghadiyabhavin61@gmail.com>
+Description: Developer-themed still or animated wallpapers for GNOME
+ Generates code-editor wallpapers with syntax-highlighted snippets (PHP,
+ Laravel, JavaScript, Python, Go, Rust, Bash, SQL) in popular color themes,
+ and rotates to a new design on a timer. The animated mode types the code out
+ line by line using a GNOME slideshow, so no video player runs in the
+ background. Run "dev-wallpaper-setup" or open "Developer Wallpaper" from the
+ app menu to configure it.

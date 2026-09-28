@@ -1,0 +1,7 @@
+[Unit]
+Description=Generate and set a fresh developer wallpaper
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/dev-wallpaper

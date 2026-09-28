@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    echo "Tip: run 'dev-wallpaper-setup --disable' as your user before removing to restore your old wallpaper."
+fi

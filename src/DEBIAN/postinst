@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    echo ""
+    echo "dev-wallpaper installed. Each user turns it on with:"
+    echo "    dev-wallpaper-setup"
+    echo "or by opening 'Developer Wallpaper' from the app menu."
+    echo ""
+fi

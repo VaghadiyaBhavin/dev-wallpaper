@@ -1,0 +1,159 @@
+#!/bin/bash
+# dev-wallpaper-setup: choose wallpaper options and turn the rotation on or off.
+#
+#   dev-wallpaper-setup                 ask questions (GUI form if no terminal)
+#   dev-wallpaper-setup --animated yes --interval 30 [--speed 1] [--themes all] [--languages all]
+#   dev-wallpaper-setup --now           make a new wallpaper right away
+#   dev-wallpaper-setup --status        show settings and next change
+#   dev-wallpaper-setup --disable       stop rotating and restore your old wallpaper
+set -euo pipefail
+
+CONF_DIR="$HOME/.config/dev-wallpaper"
+CONF="$CONF_DIR/config"
+DROPIN_DIR="$HOME/.config/systemd/user/dev-wallpaper.timer.d"
+THEMES_ALL="tokyo-night dracula nord gruvbox catppuccin one-dark"
+LANGS_ALL="php laravel javascript python go rust bash sql"
+
+ANIMATED=yes INTERVAL=30 TYPING_SPEED=1 THEMES=all LANGUAGES=all RESOLUTION=auto
+[ -f "$CONF" ] && . "$CONF"
+
+die() { echo "dev-wallpaper-setup: $*" >&2; exit 1; }
+
+# Earlier hand-installed copies in ~/.config/systemd/user would shadow the packaged units
+migrate_legacy() {
+    local d="$HOME/.config/systemd/user" moved=0
+    for u in dev-wallpaper.service dev-wallpaper.timer; do
+        if [ -f "$d/$u" ] && grep -qiE '\.local/bin/dev-wallpaper|developer wallpaper' "$d/$u"; then
+            systemctl --user disable --now "$u" >/dev/null 2>&1 || true
+            rm -f "$d/$u"; moved=1
+        fi
+    done
+    rm -f "$d/timers.target.wants/dev-wallpaper.timer"
+    if [ -f "$HOME/.local/bin/dev-wallpaper" ] && [ $moved = 1 ]; then
+        mv "$HOME/.local/bin/dev-wallpaper" "$HOME/.local/bin/dev-wallpaper.old"
+        echo "Moved old ~/.local/bin/dev-wallpaper to dev-wallpaper.old (packaged version is used now)."
+    fi
+}
+
+ask_terminal() {
+    local a
+    read -rp "Animated wallpaper (code types itself)? [yes/no] ($ANIMATED): " a; ANIMATED=${a:-$ANIMATED}
+    read -rp "Change to a new design every how many minutes? ($INTERVAL): " a; INTERVAL=${a:-$INTERVAL}
+    if [[ $ANIMATED == y* ]]; then
+        read -rp "Seconds per typed line, 1 = fastest ($TYPING_SPEED): " a; TYPING_SPEED=${a:-$TYPING_SPEED}
+    fi
+    echo "Themes: $THEMES_ALL"
+    read -rp "Which themes? 'all' or comma list ($THEMES): " a; THEMES=${a:-$THEMES}
+    echo "Languages: $LANGS_ALL"
+    read -rp "Which code languages? 'all' or comma list ($LANGUAGES): " a; LANGUAGES=${a:-$LANGUAGES}
+}
+
+ask_gui() {
+    command -v zenity >/dev/null || die "no terminal and zenity is not installed"
+    local form checked t
+    form=$(zenity --forms --title="Developer Wallpaper" --text="Wallpaper settings" --separator="|" \
+        --add-combo="Animated (code types itself)" --combo-values="yes|no" \
+        --add-combo="New design every (minutes)" --combo-values="5|10|15|30|60|120|240" \
+        --add-combo="Seconds per typed line" --combo-values="1|2|3") || exit 0
+    IFS='|' read -r a i s <<<"$form"
+    ANIMATED=${a:-$ANIMATED}; INTERVAL=${i:-$INTERVAL}; TYPING_SPEED=${s:-$TYPING_SPEED}
+
+    checked=()
+    for t in $THEMES_ALL; do
+        if [ "$THEMES" = all ] || [[ ",$THEMES," == *",$t,"* ]]; then checked+=(TRUE "$t"); else checked+=(FALSE "$t"); fi
+    done
+    t=$(zenity --list --checklist --title="Developer Wallpaper" --text="Color themes" \
+        --column="Use" --column="Theme" --separator="," --height=360 "${checked[@]}") || exit 0
+    THEMES=${t:-all}
+
+    checked=()
+    for t in $LANGS_ALL; do
+        if [ "$LANGUAGES" = all ] || [[ ",$LANGUAGES," == *",$t,"* ]]; then checked+=(TRUE "$t"); else checked+=(FALSE "$t"); fi
+    done
+    t=$(zenity --list --checklist --title="Developer Wallpaper" --text="Code languages" \
+        --column="Use" --column="Language" --separator="," --height=400 "${checked[@]}") || exit 0
+    LANGUAGES=${t:-all}
+}
+
+validate() {
+    case "${ANIMATED,,}" in y|yes|true|1) ANIMATED=yes ;; n|no|false|0) ANIMATED=no ;; *) die "animated must be yes or no" ;; esac
+    [[ $INTERVAL =~ ^[0-9]+$ ]] && [ "$INTERVAL" -ge 1 ] || die "interval must be a whole number of minutes"
+    [[ $TYPING_SPEED =~ ^[0-9]+$ ]] && [ "$TYPING_SPEED" -ge 1 ] || die "typing speed must be 1 or more seconds"
+    THEMES=${THEMES// /}; LANGUAGES=${LANGUAGES// /}
+}
+
+save_original_wallpaper() {
+    [ -f "$CONF_DIR/original-wallpaper" ] && return
+    local uri
+    uri=$(gsettings get org.gnome.desktop.background picture-uri-dark)
+    [[ $uri == *dev-wallpaper* || $uri == *dev-rotation* ]] || echo "$uri" > "$CONF_DIR/original-wallpaper"
+}
+
+apply() {
+    mkdir -p "$CONF_DIR" "$DROPIN_DIR"
+    save_original_wallpaper
+    cat > "$CONF" <<EOF
+# dev-wallpaper settings (edit, then run: dev-wallpaper-setup --apply)
+ANIMATED=$ANIMATED
+INTERVAL=$INTERVAL
+TYPING_SPEED=$TYPING_SPEED
+THEMES=$THEMES
+LANGUAGES=$LANGUAGES
+RESOLUTION=$RESOLUTION
+EOF
+    cat > "$DROPIN_DIR/interval.conf" <<EOF
+[Timer]
+OnUnitActiveSec=
+OnUnitActiveSec=${INTERVAL}min
+EOF
+    migrate_legacy
+    systemctl --user daemon-reload
+    systemctl --user enable dev-wallpaper.timer >/dev/null
+    systemctl --user restart dev-wallpaper.timer
+    systemctl --user start dev-wallpaper.service
+    local msg="Developer wallpaper is on: animated=$ANIMATED, new design every $INTERVAL min."
+    echo "$msg"
+    [ -t 1 ] || zenity --info --title="Developer Wallpaper" --text="$msg" 2>/dev/null || true
+}
+
+disable() {
+    systemctl --user disable --now dev-wallpaper.timer >/dev/null 2>&1 || true
+    if [ -f "$CONF_DIR/original-wallpaper" ]; then
+        local uri; uri=$(cat "$CONF_DIR/original-wallpaper")
+        gsettings set org.gnome.desktop.background picture-uri "$uri"
+        gsettings set org.gnome.desktop.background picture-uri-dark "$uri"
+        echo "Rotation stopped and your previous wallpaper was restored."
+    else
+        echo "Rotation stopped."
+    fi
+}
+
+status() {
+    echo "Settings ($CONF):"; sed -n 's/^\([A-Z_]*=\)/  \1/p' "$CONF" 2>/dev/null || echo "  (not configured yet)"
+    systemctl --user list-timers dev-wallpaper.timer --no-pager 2>/dev/null | head -2
+}
+
+interactive=1
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --animated)  ANIMATED=${2:?}; interactive=0; shift ;;
+        --interval)  INTERVAL=${2:?}; interactive=0; shift ;;
+        --speed)     TYPING_SPEED=${2:?}; interactive=0; shift ;;
+        --themes)    THEMES=${2:?}; interactive=0; shift ;;
+        --languages) LANGUAGES=${2:?}; interactive=0; shift ;;
+        --resolution) RESOLUTION=${2:?}; interactive=0; shift ;;
+        --apply)     interactive=0 ;;
+        --now)       exec dev-wallpaper ;;
+        --status)    status; exit 0 ;;
+        --disable)   disable; exit 0 ;;
+        -h|--help)   sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option: $1 (see --help)" ;;
+    esac
+    shift
+done
+
+if [ $interactive = 1 ]; then
+    if [ -t 0 ]; then ask_terminal; else ask_gui; fi
+fi
+validate
+apply

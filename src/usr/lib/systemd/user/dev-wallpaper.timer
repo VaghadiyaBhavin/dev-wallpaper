@@ -1,0 +1,12 @@
+[Unit]
+Description=Change the developer wallpaper periodically
+
+[Timer]
+OnStartupSec=1min
+OnActiveSec=1min
+# Overridden per user by ~/.config/systemd/user/dev-wallpaper.timer.d/interval.conf
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""dev-wallpaper: generate a developer-themed GNOME wallpaper, still or animated.
+
+Settings are read from ~/.config/dev-wallpaper/config (written by dev-wallpaper-setup).
+Run by the dev-wallpaper.timer systemd user unit.
+"""
+import os, random, re, subprocess, sys
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+VERSION = "1.0.1"
+MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+MONO_B = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+CONFIG = os.path.expanduser("~/.config/dev-wallpaper/config")
+OUT_DIR = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "dev-wallpaper")
+
+DEFAULTS = {
+    "ANIMATED": "yes",       # yes | no
+    "INTERVAL": "30",        # minutes between new designs (used by the timer)
+    "TYPING_SPEED": "1",     # seconds per typed line (GNOME's minimum step is 1s)
+    "THEMES": "all",         # all | comma list of theme names
+    "LANGUAGES": "all",      # all | comma list of language names
+    "RESOLUTION": "auto",    # auto | WIDTHxHEIGHT
+}
+
+# Canvas width; height follows the screen's aspect ratio
+W = 3840
+H = 2400
+
+# Palettes: bg top/bottom, glow1, glow2, window, titlebar, and syntax colors
+THEMES = {
+    "tokyo-night": dict(top=(13, 17, 28), bot=(8, 10, 18), g1=(90, 40, 140), g2=(20, 80, 120), win=(22, 27, 40), bar=(30, 36, 52),
+                        kw=(199, 146, 234), fn=(130, 170, 255), s=(195, 232, 141), v=(247, 140, 108), cm=(99, 110, 135), tx=(205, 214, 244), cl=(255, 203, 107)),
+    "dracula": dict(top=(24, 22, 36), bot=(14, 13, 22), g1=(150, 60, 140), g2=(60, 50, 150), win=(40, 42, 54), bar=(50, 52, 68),
+                    kw=(255, 121, 198), fn=(80, 250, 123), s=(241, 250, 140), v=(255, 184, 108), cm=(98, 114, 164), tx=(248, 248, 242), cl=(139, 233, 253)),
+    "nord": dict(top=(30, 36, 46), bot=(20, 24, 32), g1=(60, 100, 140), g2=(80, 120, 110), win=(46, 52, 64), bar=(59, 66, 82),
+                 kw=(129, 161, 193), fn=(136, 192, 208), s=(163, 190, 140), v=(208, 135, 112), cm=(97, 110, 136), tx=(216, 222, 233), cl=(235, 203, 139)),
+    "gruvbox": dict(top=(32, 30, 28), bot=(20, 18, 16), g1=(140, 80, 30), g2=(90, 100, 40), win=(40, 40, 40), bar=(60, 56, 54),
+                    kw=(251, 73, 52), fn=(184, 187, 38), s=(184, 187, 38), v=(254, 128, 25), cm=(146, 131, 116), tx=(235, 219, 178), cl=(250, 189, 47)),
+    "catppuccin": dict(top=(24, 24, 37), bot=(17, 17, 27), g1=(120, 80, 170), g2=(50, 110, 140), win=(30, 30, 46), bar=(49, 50, 68),
+                       kw=(203, 166, 247), fn=(137, 180, 250), s=(166, 227, 161), v=(250, 179, 135), cm=(108, 112, 134), tx=(205, 214, 244), cl=(249, 226, 175)),
+    "one-dark": dict(top=(26, 29, 35), bot=(16, 18, 22), g1=(40, 90, 150), g2=(120, 50, 90), win=(40, 44, 52), bar=(50, 55, 65),
+                     kw=(198, 120, 221), fn=(97, 175, 239), s=(152, 195, 121), v=(224, 108, 117), cm=(92, 99, 112), tx=(171, 178, 191), cl=(229, 192, 123)),
+}
+
+# Snippets: (filename, lines). Each token is (text, role); roles map to theme keys.
+SNIPPETS = [
+    ("DeveloperController.php", [
+        [("<?php", "kw")], [],
+        [("class ", "kw"), ("Developer", "cl"), (" extends ", "kw"), ("Human", "cl")], [("{", "tx")],
+        [("    // TODO: sleep()", "cm")],
+        [("    public function ", "kw"), ("life", "fn"), ("(): ", "tx"), ("never", "cl")], [("    {", "tx")],
+        [("        while", "kw"), (" (", "tx"), ("true", "v"), (") {", "tx")],
+        [("            $this", "v"), ("->", "tx"), ("coffee", "fn"), ("();", "tx")],
+        [("            $this", "v"), ("->", "tx"), ("code", "fn"), ("();", "tx")],
+        [("            $this", "v"), ("->", "tx"), ("debug", "fn"), ("(", "tx"), ("'why?'", "s"), (");", "tx")],
+        [("            $this", "v"), ("->", "tx"), ("ship", "fn"), ("();", "tx")],
+        [("        }", "tx")], [("    }", "tx")], [("}", "tx")],
+    ]),
+    ("routes/web.php", [
+        [("<?php", "kw")], [],
+        [("use ", "kw"), ("Illuminate\\Support\\Facades\\Route", "cl"), (";", "tx")], [],
+        [("Route", "cl"), ("::", "tx"), ("get", "fn"), ("(", "tx"), ("'/weekend'", "s"), (", ", "tx"), ("function", "kw"), (" () {", "tx")],
+        [("    // deploy on friday? no.", "cm")],
+        [("    return ", "kw"), ("response", "fn"), ("()", "tx")],
+        [("        ->", "tx"), ("json", "fn"), ("([", "tx")],
+        [("            'status'", "s"), (" => ", "tx"), ("'offline'", "s"), (",", "tx")],
+        [("            'coffee'", "s"), (" => ", "tx"), ("PHP_INT_MAX", "v"), (",", "tx")],
+        [("        ]);", "tx")],
+        [("})->", "tx"), ("middleware", "fn"), ("(", "tx"), ("'auth'", "s"), (");", "tx")],
+    ]),
+    ("life.js", [
+        [("const ", "kw"), ("developer", "v"), (" = {", "tx")],
+        [("  name: ", "tx"), ("'you'", "s"), (",", "tx")],
+        [("  skills: ", "tx"), ("[", "tx"), ("'js'", "s"), (", ", "tx"), ("'php'", "s"), (", ", "tx"), ("'googling'", "s"), ("],", "tx")],
+        [("};", "tx")], [],
+        [("async function ", "kw"), ("workday", "fn"), ("() {", "tx")],
+        [("  await ", "kw"), ("coffee", "fn"), ("();", "tx")],
+        [("  try ", "kw"), ("{", "tx")],
+        [("    await ", "kw"), ("build", "fn"), ("(developer);", "tx")],
+        [("  } ", "tx"), ("catch", "kw"), (" (e) {", "tx")],
+        [("    // it's always DNS", "cm")],
+        [("    console", "v"), (".", "tx"), ("log", "fn"), ("(", "tx"), ("'works on my machine'", "s"), (");", "tx")],
+        [("  }", "tx")], [("}", "tx")],
+    ]),
+    ("main.py", [
+        [("from ", "kw"), ("life ", "tx"), ("import ", "kw"), ("Coffee", "cl"), (", ", "tx"), ("Bugs", "cl")], [],
+        [("def ", "kw"), ("solve", "fn"), ("(problem):", "tx")],
+        [('    """Works on my machine."""', "s")],
+        [("    while ", "kw"), ("problem", "v"), (".", "tx"), ("exists", "fn"), ("():", "tx")],
+        [("        ", "tx"), ("Coffee", "cl"), (".", "tx"), ("drink", "fn"), ("()", "tx")],
+        [("        problem ", "v"), ("= ", "tx"), ("stackoverflow", "fn"), ("(problem)", "tx")],
+        [("    return ", "kw"), ("'shipped'", "s")], [],
+        [("if ", "kw"), ("__name__", "v"), (" == ", "tx"), ("'__main__'", "s"), (":", "tx")],
+        [("    ", "tx"), ("solve", "fn"), ("(", "tx"), ("Bugs", "cl"), ("(", "tx"), ("count", "v"), ("=", "tx"), ("99", "v"), ("))", "tx")],
+    ]),
+    ("main.go", [
+        [("package ", "kw"), ("main", "cl")], [],
+        [("import ", "kw"), ('"fmt"', "s")], [],
+        [("func ", "kw"), ("main", "fn"), ("() {", "tx")],
+        [("    for ", "kw"), ("{", "tx")],
+        [("        if ", "kw"), ("err", "v"), (" := ", "tx"), ("code", "fn"), ("(); err ", "tx"), ("!= ", "tx"), ("nil", "v"), (" {", "tx")],
+        [("            // if err != nil, forever", "cm")],
+        [("            fmt", "cl"), (".", "tx"), ("Println", "fn"), ("(", "tx"), ('"try again"', "s"), (")", "tx")],
+        [("            continue", "kw")],
+        [("        }", "tx")],
+        [("        ", "tx"), ("ship", "fn"), ("()", "tx")],
+        [("    }", "tx")], [("}", "tx")],
+    ]),
+    ("lib.rs", [
+        [("fn ", "kw"), ("main", "fn"), ("() {", "tx")],
+        [("    let ", "kw"), ("mut ", "kw"), ("dev", "v"), (" = ", "tx"), ("Developer", "cl"), ("::", "tx"), ("new", "fn"), ("();", "tx")], [],
+        [("    loop ", "kw"), ("{", "tx")],
+        [("        match ", "kw"), ("dev", "v"), (".", "tx"), ("compile", "fn"), ("() {", "tx")],
+        [("            Ok", "cl"), ("(_) => ", "tx"), ("break", "kw"), (",", "tx")],
+        [("            Err", "cl"), ("(e) => dev.", "tx"), ("fight", "fn"), ("(", "tx"), ("borrow_checker", "v"), ("),", "tx")],
+        [("        }", "tx")],
+        [("    }", "tx")], [],
+        [("    // fearless concurrency, fearful me", "cm")],
+        [("    println!", "fn"), ("(", "tx"), ('"it compiles!"', "s"), (");", "tx")],
+        [("}", "tx")],
+    ]),
+    ("deploy.sh", [
+        [("#!/usr/bin/env bash", "cm")],
+        [("set ", "kw"), ("-euo pipefail", "v")], [],
+        [("git ", "fn"), ("add ", "tx"), (".", "v")],
+        [("git ", "fn"), ("commit ", "tx"), ("-m ", "v"), ('"fix: final fix (really)"', "s")],
+        [("git ", "fn"), ("push ", "tx"), ("origin main", "tx")], [],
+        [("php ", "fn"), ("artisan ", "tx"), ("migrate ", "tx"), ("--force", "v")],
+        [("php ", "fn"), ("artisan ", "tx"), ("optimize", "tx")], [],
+        [("echo ", "kw"), ('"deployed on a friday"', "s")],
+        [("# pray", "cm")],
+    ]),
+    ("query.sql", [
+        [("SELECT ", "kw"), ("developer", "v"), (", ", "tx"), ("COUNT", "fn"), ("(", "tx"), ("coffee", "v"), (")", "tx")],
+        [("FROM ", "kw"), ("office", "cl")],
+        [("JOIN ", "kw"), ("bugs ", "cl"), ("ON ", "kw"), ("bugs.owner ", "v"), ("= ", "tx"), ("developer.id", "v")],
+        [("WHERE ", "kw"), ("mood ", "v"), ("= ", "tx"), ("'focused'", "s")],
+        [("  AND ", "kw"), ("deadline ", "v"), ("< ", "tx"), ("NOW", "fn"), ("()", "tx")],
+        [("GROUP BY ", "kw"), ("developer", "v")],
+        [("ORDER BY ", "kw"), ("2 ", "v"), ("DESC", "kw"), (";", "tx")], [],
+        [("-- 0 rows affected, 1 dev affected", "cm")],
+    ]),
+]
+
+TAGLINES = [
+    (["$ build", "  break", "  repeat_"], "// it works on my machine"),
+    (["eat()", "sleep()", "code()_"], "// repeat until deployed"),
+    (["git commit", "  -m", '  "wip"_'], "// future me will understand"),
+    (["hello,", "world_"], "// every journey starts here"),
+    (["ctrl+s", "ctrl+z", "ctrl+z_"], "// version control is a lifestyle"),
+    (["404:", "sleep", "not found_"], "// coffee.status = 200"),
+    (["think.", "code.", "ship._"], "// then refactor"),
+    (["php artisan", "  make:", "  magic_"], "// laravel does the rest"),
+    (["</>", "keep", "coding_"], "// one more bug, then bed"),
+]
+
+LANGUAGE_OF = {
+    "DeveloperController.php": "php", "routes/web.php": "laravel", "life.js": "javascript", "main.py": "python",
+    "main.go": "go", "lib.rs": "rust", "deploy.sh": "bash", "query.sql": "sql",
+}
+
+
+def load_config():
+    cfg = dict(DEFAULTS)
+    if os.path.exists(CONFIG):
+        with open(CONFIG) as fh:
+            for line in fh:
+                m = re.match(r'\s*([A-Z_]+)\s*=\s*"?([^"#\n]*)"?', line)
+                if m:
+                    cfg[m.group(1)] = m.group(2).strip()
+    return cfg
+
+
+def pick(names, wanted):
+    if wanted.strip().lower() in ("", "all"):
+        return list(names)
+    chosen = [n for n in (w.strip().lower() for w in wanted.split(",")) if n in names]
+    return chosen or list(names)
+
+
+def screen_size(setting):
+    m = re.fullmatch(r"(\d+)x(\d+)", setting.strip())
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    # GNOME stores the active layout in monitors.xml; use the largest mode listed
+    best = (1920, 1080)
+    try:
+        with open(os.path.expanduser("~/.config/monitors.xml")) as fh:
+            xml = fh.read()
+        sizes = [(int(w), int(h)) for w, h in re.findall(r"<width>(\d+)</width>\s*<height>(\d+)</height>", xml)]
+        if sizes:
+            best = max(sizes, key=lambda s: s[0] * s[1])
+    except OSError:
+        pass
+    return best
+
+
+def gradient(top, bot):
+    col = Image.new("RGB", (1, 256))
+    for y in range(256):
+        t = y / 255
+        col.putpixel((0, y), tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)))
+    return col.resize((W, H), Image.BICUBIC)
+
+
+def render_base(theme, snippet, tagline, flip):
+    """Draw everything except the code text and cursor; return the image and code layout."""
+    img = gradient(theme["top"], theme["bot"])
+
+    glow = Image.new("RGB", (W, H), (0, 0, 0))
+    g = ImageDraw.Draw(glow)
+    for color in (theme["g1"], theme["g2"]):
+        cx, cy, r = random.randint(0, W), random.randint(0, H), random.randint(600, 900)
+        g.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
+    glow = glow.resize((W // 8, H // 8)).filter(ImageFilter.GaussianBlur(48)).resize((W, H), Image.BICUBIC)
+    img = Image.blend(img, glow, 0.35)
+
+    d = ImageDraw.Draw(img, "RGBA")
+    pattern = random.choice(["dots", "grid", "none"])
+    if pattern == "dots":
+        for x in range(0, W, 64):
+            for y in range(0, H, 64):
+                d.ellipse((x - 2, y - 2, x + 2, y + 2), fill=(255, 255, 255, 18))
+    elif pattern == "grid":
+        for x in range(0, W, 128):
+            d.line((x, 0, x, H), fill=(255, 255, 255, 10), width=2)
+        for y in range(0, H, 128):
+            d.line((0, y, W, y), fill=(255, 255, 255, 10), width=2)
+
+    # Editor window: right side by default, left when flipped
+    fname, lines = snippet
+    cf = ImageFont.truetype(MONO, 42)
+    lh = 58
+    ww = max(1400, int(max((sum(d.textlength(t, font=cf) for t, _ in ln) for ln in lines), default=0)) + 260)
+    wh = 80 + 100 + len(lines) * lh + 60
+    wx = 360 if flip else W - ww - 320
+    wy = (H - wh) // 2 - 60
+
+    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle((wx + 20, wy + 40, wx + ww + 20, wy + wh + 40), 36, fill=(0, 0, 0, 160))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(40))
+    img.paste(shadow, (0, 0), shadow)
+    d = ImageDraw.Draw(img, "RGBA")
+    d.rounded_rectangle((wx, wy, wx + ww, wy + wh), 32, fill=theme["win"] + (240,), outline=(255, 255, 255, 30), width=2)
+    d.rounded_rectangle((wx, wy, wx + ww, wy + 80), 32, fill=theme["bar"])
+    d.rectangle((wx, wy + 50, wx + ww, wy + 80), fill=theme["bar"])
+    for i, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
+        cx = wx + 50 + i * 44
+        d.ellipse((cx - 13, wy + 27, cx + 13, wy + 53), fill=col)
+    d.text((wx + ww / 2, wy + 40), fname, font=ImageFont.truetype(MONO, 30), fill=theme["cm"], anchor="mm")
+
+    # Tagline on the opposite side
+    big = ImageFont.truetype(MONO_B, 120)
+    small = ImageFont.truetype(MONO, 44)
+    words, comment = tagline
+    colors = [theme["tx"], theme["v"], theme["s"], theme["fn"]]
+    block_w = max(max(d.textlength(w, font=big) for w in words), d.textlength(comment, font=small) + 10)
+    tx = W - 360 - block_w if flip else 360
+    ty = H // 2 - (len(words) * 140) // 2 - 60
+    for i, w in enumerate(words):
+        d.text((tx, ty + i * 140), w, font=big, fill=colors[i % len(colors)] + (235,))
+    d.text((tx + 10, ty + len(words) * 140 + 50), comment, font=small, fill=theme["cm"])
+
+    layout = dict(lines=lines, cf=cf, lh=lh, wx=wx, x0=wx + 130, y0=wy + 130)
+    return img, layout
+
+
+def render_frame(base, layout, theme, visible, cursor, size):
+    """Draw the first `visible` code lines onto a copy of base, with an optional cursor."""
+    img = base.copy()
+    d = ImageDraw.Draw(img, "RGBA")
+    lines, cf, lh, x0, y0 = layout["lines"], layout["cf"], layout["lh"], layout["x0"], layout["y0"]
+    lnf = ImageFont.truetype(MONO, 34)
+    for i, line in enumerate(lines[:visible]):
+        y = y0 + i * lh
+        d.text((layout["wx"] + 90, y + 4), str(i + 1), font=lnf, fill=theme["cm"] + (160,), anchor="ra")
+        x = x0
+        for text, role in line:
+            d.text((x, y), text, font=cf, fill=theme[role])
+            x += d.textlength(text, font=cf)
+    if cursor:
+        row = max(visible - 1, 0)
+        end = sum(d.textlength(t, font=cf) for t, _ in lines[row]) if visible else 0
+        cy = y0 + row * lh
+        d.rectangle((x0 + end + 8, cy + 4, x0 + end + 30, cy + 52), fill=theme["fn"] + (220,))
+    return img.resize(size, Image.LANCZOS)
+
+
+def animation_steps(n_lines, speed):
+    """Yield ((visible_lines, cursor), seconds): type line by line, then blink the cursor.
+
+    GNOME Shell updates slideshow backgrounds at most once per second, so every
+    step is a whole number of seconds.
+    """
+    yield (0, True), 2
+    for v in range(1, n_lines + 1):
+        yield (v, True), speed
+    for _ in range(6):
+        yield (n_lines, False), 1
+        yield (n_lines, True), 1
+
+
+def set_background(path):
+    uri = "file://" + path
+    for key in ("picture-uri", "picture-uri-dark"):
+        subprocess.run(["gsettings", "set", "org.gnome.desktop.background", key, uri], check=True)
+    subprocess.run(["gsettings", "set", "org.gnome.desktop.background", "picture-options", "zoom"], check=True)
+
+
+def main():
+    global H
+    if "--version" in sys.argv:
+        print(VERSION)
+        return
+    if "--list" in sys.argv:
+        print("themes:    " + ", ".join(THEMES))
+        print("languages: " + ", ".join(sorted(set(LANGUAGE_OF.values()))))
+        return
+
+    cfg = load_config()
+    size = screen_size(cfg["RESOLUTION"])
+    H = round(W * size[1] / size[0])
+    animated = cfg["ANIMATED"].lower() in ("yes", "y", "true", "1")
+    try:
+        speed = max(1, int(cfg["TYPING_SPEED"]))
+    except ValueError:
+        speed = 1
+
+    theme_name = random.choice(pick(THEMES, cfg["THEMES"]))
+    theme = THEMES[theme_name]
+    langs = pick(sorted(set(LANGUAGE_OF.values())), cfg["LANGUAGES"])
+    snippet = random.choice([s for s in SNIPPETS if LANGUAGE_OF[s[0]] in langs])
+    base, layout = render_base(theme, snippet, random.choice(TAGLINES), random.random() < 0.3)
+
+    # Alternate between two output folders so GNOME notices the change
+    current = subprocess.run(["gsettings", "get", "org.gnome.desktop.background", "picture-uri-dark"],
+                             capture_output=True, text=True).stdout
+    out_dir = os.path.join(OUT_DIR, "set-b" if "set-a" in current else "set-a")
+    os.makedirs(out_dir, exist_ok=True)
+    for old in os.listdir(out_dir):
+        os.remove(os.path.join(out_dir, old))
+
+    n = len(layout["lines"])
+    if not animated:
+        path = os.path.join(out_dir, "wallpaper.jpg")
+        render_frame(base, layout, theme, n, True, size).save(path, quality=95)
+        set_background(path)
+        print(f"{theme_name}/{LANGUAGE_OF[snippet[0]]} still -> {path}")
+        return
+
+    entries, cache = [], {}
+    for (visible, cursor), secs in animation_steps(n, speed):
+        path = cache.get((visible, cursor))
+        if path is None:
+            path = os.path.join(out_dir, f"frame-{visible:02d}{'' if cursor else '-nocursor'}.jpg")
+            render_frame(base, layout, theme, visible, cursor, size).save(path, quality=93)
+            cache[(visible, cursor)] = path
+        entries.append(f"  <static><duration>{secs}.0</duration><file>{path}</file></static>")
+
+    xml = os.path.join(out_dir, "animation.xml")
+    with open(xml, "w") as fh:
+        fh.write("<background>\n  <starttime><year>2026</year><month>1</month><day>1</day>"
+                 "<hour>0</hour><minute>0</minute><second>0</second></starttime>\n")
+        fh.write("\n".join(entries) + "\n</background>\n")
+    set_background(xml)
+    print(f"{theme_name}/{LANGUAGE_OF[snippet[0]]} animated ({len(entries)} steps) -> {xml}")
+
+
+if __name__ == "__main__":
+    main()
