@@ -5,6 +5,7 @@ Setup (per user, no sudo needed):
     dev-wallpaper-setup                 interactive questions
     dev-wallpaper-setup --animated no --interval 60
     dev-wallpaper-setup --animated yes --interval 15 --speed 2 --themes dracula,nord --languages php,laravel
+    dev-wallpaper-setup --themes light  only the light themes (or: dark)
 
 Other commands:
     dev-wallpaper-setup --now       new design right away

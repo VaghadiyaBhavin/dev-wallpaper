@@ -11,7 +11,7 @@ set -euo pipefail
 CONF_DIR="$HOME/.config/dev-wallpaper"
 CONF="$CONF_DIR/config"
 DROPIN_DIR="$HOME/.config/systemd/user/dev-wallpaper.timer.d"
-THEMES_ALL="tokyo-night dracula nord gruvbox catppuccin one-dark"
+THEMES_ALL="tokyo-night dracula nord gruvbox catppuccin one-dark github-light solarized-light catppuccin-latte one-light"
 LANGS_ALL="php laravel javascript python go rust bash sql"
 
 ANIMATED=yes INTERVAL=30 TYPING_SPEED=1 THEMES=all LANGUAGES=all RESOLUTION=auto
@@ -43,7 +43,7 @@ ask_terminal() {
         read -rp "Seconds per typed line, 1 = fastest ($TYPING_SPEED): " a; TYPING_SPEED=${a:-$TYPING_SPEED}
     fi
     echo "Themes: $THEMES_ALL"
-    read -rp "Which themes? 'all' or comma list ($THEMES): " a; THEMES=${a:-$THEMES}
+    read -rp "Which themes? 'all', 'dark', 'light' or comma list ($THEMES): " a; THEMES=${a:-$THEMES}
     echo "Languages: $LANGS_ALL"
     read -rp "Which code languages? 'all' or comma list ($LANGUAGES): " a; LANGUAGES=${a:-$LANGUAGES}
 }
@@ -63,7 +63,7 @@ ask_gui() {
         if [ "$THEMES" = all ] || [[ ",$THEMES," == *",$t,"* ]]; then checked+=(TRUE "$t"); else checked+=(FALSE "$t"); fi
     done
     t=$(zenity --list --checklist --title="Developer Wallpaper" --text="Color themes" \
-        --column="Use" --column="Theme" --separator="," --height=360 "${checked[@]}") || exit 0
+        --column="Use" --column="Theme" --separator="," --height=480 "${checked[@]}") || exit 0
     THEMES=${t:-all}
 
     checked=()

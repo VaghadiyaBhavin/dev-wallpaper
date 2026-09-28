@@ -26,7 +26,8 @@ DEFAULTS = {
 W = 3840
 H = 2400
 
-# Palettes: bg top/bottom, glow1, glow2, window, titlebar, and syntax colors
+# Palettes: bg top/bottom, glow1, glow2, window, titlebar, and syntax colors.
+# light=True flips the overlay ink (pattern, outline, shadow) to suit a pale background.
 THEMES = {
     "tokyo-night": dict(top=(13, 17, 28), bot=(8, 10, 18), g1=(90, 40, 140), g2=(20, 80, 120), win=(22, 27, 40), bar=(30, 36, 52),
                         kw=(199, 146, 234), fn=(130, 170, 255), s=(195, 232, 141), v=(247, 140, 108), cm=(99, 110, 135), tx=(205, 214, 244), cl=(255, 203, 107)),
@@ -40,6 +41,14 @@ THEMES = {
                        kw=(203, 166, 247), fn=(137, 180, 250), s=(166, 227, 161), v=(250, 179, 135), cm=(108, 112, 134), tx=(205, 214, 244), cl=(249, 226, 175)),
     "one-dark": dict(top=(26, 29, 35), bot=(16, 18, 22), g1=(40, 90, 150), g2=(120, 50, 90), win=(40, 44, 52), bar=(50, 55, 65),
                      kw=(198, 120, 221), fn=(97, 175, 239), s=(152, 195, 121), v=(224, 108, 117), cm=(92, 99, 112), tx=(171, 178, 191), cl=(229, 192, 123)),
+    "github-light": dict(light=True, top=(246, 248, 250), bot=(226, 231, 238), g1=(170, 205, 255), g2=(255, 200, 220), win=(255, 255, 255), bar=(238, 241, 245),
+                         kw=(207, 34, 46), fn=(130, 80, 223), s=(10, 48, 105), v=(5, 80, 174), cm=(110, 119, 129), tx=(36, 41, 47), cl=(149, 56, 0)),
+    "solarized-light": dict(light=True, top=(253, 246, 227), bot=(236, 228, 205), g1=(245, 200, 140), g2=(160, 210, 200), win=(255, 251, 240), bar=(238, 232, 213),
+                            kw=(133, 153, 0), fn=(38, 139, 210), s=(42, 161, 152), v=(203, 75, 22), cm=(147, 161, 161), tx=(88, 110, 117), cl=(181, 137, 0)),
+    "catppuccin-latte": dict(light=True, top=(239, 241, 245), bot=(218, 222, 232), g1=(205, 180, 250), g2=(170, 210, 240), win=(250, 251, 253), bar=(230, 233, 239),
+                             kw=(136, 57, 239), fn=(30, 102, 245), s=(64, 160, 43), v=(254, 100, 11), cm=(140, 143, 161), tx=(76, 79, 105), cl=(223, 142, 29)),
+    "one-light": dict(light=True, top=(250, 250, 250), bot=(230, 231, 235), g1=(185, 205, 250), g2=(240, 200, 210), win=(255, 255, 255), bar=(234, 234, 235),
+                      kw=(166, 38, 164), fn=(64, 120, 242), s=(80, 161, 79), v=(228, 86, 73), cm=(160, 161, 167), tx=(56, 58, 66), cl=(193, 132, 1)),
 }
 
 # Snippets: (filename, lines). Each token is (text, role); roles map to theme keys.
@@ -171,10 +180,13 @@ def load_config():
     return cfg
 
 
-def pick(names, wanted):
+def pick(names, wanted, groups=None):
+    """Names listed in `wanted`; group words (e.g. "light") expand to their members."""
     if wanted.strip().lower() in ("", "all"):
         return list(names)
-    chosen = [n for n in (w.strip().lower() for w in wanted.split(",")) if n in names]
+    words = (w.strip().lower() for w in wanted.split(","))
+    expanded = [n for w in words for n in (groups or {}).get(w, [w])]
+    chosen = [n for n in dict.fromkeys(expanded) if n in names]
     return chosen or list(names)
 
 
@@ -206,8 +218,11 @@ def gradient(top, bot):
 def render_base(theme, snippet, tagline, flip):
     """Draw everything except the code text and cursor; return the image and code layout."""
     img = gradient(theme["top"], theme["bot"])
+    light = theme.get("light", False)
+    ink = (0, 0, 0) if light else (255, 255, 255)
 
-    glow = Image.new("RGB", (W, H), (0, 0, 0))
+    # Blend towards the page colour on light themes so the glow tints instead of darkening
+    glow = Image.new("RGB", (W, H), theme["bot"] if light else (0, 0, 0))
     g = ImageDraw.Draw(glow)
     for color in (theme["g1"], theme["g2"]):
         cx, cy, r = random.randint(0, W), random.randint(0, H), random.randint(600, 900)
@@ -220,12 +235,12 @@ def render_base(theme, snippet, tagline, flip):
     if pattern == "dots":
         for x in range(0, W, 64):
             for y in range(0, H, 64):
-                d.ellipse((x - 2, y - 2, x + 2, y + 2), fill=(255, 255, 255, 18))
+                d.ellipse((x - 2, y - 2, x + 2, y + 2), fill=ink + (18,))
     elif pattern == "grid":
         for x in range(0, W, 128):
-            d.line((x, 0, x, H), fill=(255, 255, 255, 10), width=2)
+            d.line((x, 0, x, H), fill=ink + (10,), width=2)
         for y in range(0, H, 128):
-            d.line((0, y, W, y), fill=(255, 255, 255, 10), width=2)
+            d.line((0, y, W, y), fill=ink + (10,), width=2)
 
     # Editor window: right side by default, left when flipped
     fname, lines = snippet
@@ -237,11 +252,11 @@ def render_base(theme, snippet, tagline, flip):
     wy = (H - wh) // 2 - 60
 
     shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle((wx + 20, wy + 40, wx + ww + 20, wy + wh + 40), 36, fill=(0, 0, 0, 160))
+    ImageDraw.Draw(shadow).rounded_rectangle((wx + 20, wy + 40, wx + ww + 20, wy + wh + 40), 36, fill=(0, 0, 0, 60 if light else 160))
     shadow = shadow.filter(ImageFilter.GaussianBlur(40))
     img.paste(shadow, (0, 0), shadow)
     d = ImageDraw.Draw(img, "RGBA")
-    d.rounded_rectangle((wx, wy, wx + ww, wy + wh), 32, fill=theme["win"] + (240,), outline=(255, 255, 255, 30), width=2)
+    d.rounded_rectangle((wx, wy, wx + ww, wy + wh), 32, fill=theme["win"] + (240,), outline=ink + (30,), width=2)
     d.rounded_rectangle((wx, wy, wx + ww, wy + 80), 32, fill=theme["bar"])
     d.rectangle((wx, wy + 50, wx + ww, wy + 80), fill=theme["bar"])
     for i, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
@@ -313,7 +328,7 @@ def main():
         print(VERSION)
         return
     if "--list" in sys.argv:
-        print("themes:    " + ", ".join(THEMES))
+        print("themes:    " + ", ".join(THEMES) + "  (groups: dark, light)")
         print("languages: " + ", ".join(sorted(set(LANGUAGE_OF.values()))))
         return
 
@@ -326,7 +341,9 @@ def main():
     except ValueError:
         speed = 1
 
-    theme_name = random.choice(pick(THEMES, cfg["THEMES"]))
+    groups = {"light": [n for n, t in THEMES.items() if t.get("light")],
+              "dark": [n for n, t in THEMES.items() if not t.get("light")]}
+    theme_name = random.choice(pick(THEMES, cfg["THEMES"], groups))
     theme = THEMES[theme_name]
     langs = pick(sorted(set(LANGUAGE_OF.values())), cfg["LANGUAGES"])
     snippet = random.choice([s for s in SNIPPETS if LANGUAGE_OF[s[0]] in langs])
