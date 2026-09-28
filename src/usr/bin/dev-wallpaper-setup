@@ -11,7 +11,9 @@ set -euo pipefail
 CONF_DIR="$HOME/.config/dev-wallpaper"
 CONF="$CONF_DIR/config"
 DROPIN_DIR="$HOME/.config/systemd/user/dev-wallpaper.timer.d"
-THEMES_ALL="tokyo-night dracula nord gruvbox catppuccin one-dark github-light solarized-light catppuccin-latte one-light"
+THEMES_DARK="tokyo-night dracula nord gruvbox catppuccin one-dark"
+THEMES_LIGHT="github-light solarized-light catppuccin-latte one-light"
+THEMES_ALL="$THEMES_DARK $THEMES_LIGHT"
 LANGS_ALL="php laravel javascript python go rust bash sql"
 
 ANIMATED=yes INTERVAL=30 TYPING_SPEED=1 THEMES=all LANGUAGES=all RESOLUTION=auto
@@ -50,21 +52,31 @@ ask_terminal() {
 
 ask_gui() {
     command -v zenity >/dev/null || die "no terminal and zenity is not installed"
-    local form checked t
+    local form checked t style on
     form=$(zenity --forms --title="Developer Wallpaper" --text="Wallpaper settings" --separator="|" \
         --add-combo="Animated (code types itself)" --combo-values="yes|no" \
         --add-combo="New design every (minutes)" --combo-values="5|10|15|30|60|120|240" \
-        --add-combo="Seconds per typed line" --combo-values="1|2|3") || exit 0
-    IFS='|' read -r a i s <<<"$form"
+        --add-combo="Seconds per typed line" --combo-values="1|2|3" \
+        --add-combo="Theme style" --combo-values="all|dark|light|pick themes") || exit 0
+    IFS='|' read -r a i s style <<<"$form"
     ANIMATED=${a:-$ANIMATED}; INTERVAL=${i:-$INTERVAL}; TYPING_SPEED=${s:-$TYPING_SPEED}
 
-    checked=()
-    for t in $THEMES_ALL; do
-        if [ "$THEMES" = all ] || [[ ",$THEMES," == *",$t,"* ]]; then checked+=(TRUE "$t"); else checked+=(FALSE "$t"); fi
-    done
-    t=$(zenity --list --checklist --title="Developer Wallpaper" --text="Color themes" \
-        --column="Use" --column="Theme" --separator="," --height=480 "${checked[@]}") || exit 0
-    THEMES=${t:-all}
+    case "$style" in
+        all|dark|light) THEMES=$style ;;
+        *)
+            checked=()
+            for t in $THEMES_ALL; do
+                on=FALSE
+                if [ "$THEMES" = all ] || [[ ",$THEMES," == *",$t,"* ]] ||
+                   [[ $THEMES == dark && " $THEMES_DARK " == *" $t "* ]] ||
+                   [[ $THEMES == light && " $THEMES_LIGHT " == *" $t "* ]]; then on=TRUE; fi
+                [[ " $THEMES_LIGHT " == *" $t "* ]] && checked+=("$on" "$t" light) || checked+=("$on" "$t" dark)
+            done
+            t=$(zenity --list --checklist --title="Developer Wallpaper" --text="Color themes" \
+                --column="Use" --column="Theme" --column="Style" --print-column=2 \
+                --separator="," --height=480 "${checked[@]}") || exit 0
+            THEMES=${t:-all} ;;
+    esac
 
     checked=()
     for t in $LANGS_ALL; do

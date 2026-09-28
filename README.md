@@ -157,8 +157,9 @@ Open your apps, search for **“Developer Wallpaper”**, and pick your options 
 1. Animated? `yes` / `no`
 2. New design every … minutes
 3. Seconds per typed line (animation speed)
-4. Tick the color themes you like
-5. Tick the code languages you like
+4. Theme style: `all`, `dark`, `light`, or `pick themes`
+5. *(if you chose “pick themes”)* Tick the color themes you like — each one is labeled dark or light
+6. Tick the code languages you like
 
 ### Option 2 — From the terminal (interactive)
 
