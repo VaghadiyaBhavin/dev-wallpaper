@@ -107,6 +107,8 @@ OnUnitActiveSec=
 OnUnitActiveSec=${INTERVAL}min
 EOF
     migrate_legacy
+    # Left by the old Persistent=true timer; it stops the timer firing after a reboot
+    rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/systemd/timers/stamp-dev-wallpaper.timer"
     systemctl --user daemon-reload
     systemctl --user enable dev-wallpaper.timer >/dev/null
     systemctl --user restart dev-wallpaper.timer

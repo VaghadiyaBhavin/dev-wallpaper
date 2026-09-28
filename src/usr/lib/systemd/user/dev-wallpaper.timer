@@ -6,7 +6,11 @@ OnStartupSec=1min
 OnActiveSec=1min
 # Overridden per user by ~/.config/systemd/user/dev-wallpaper.timer.d/interval.conf
 OnUnitActiveSec=30min
-Persistent=true
+# Fire on time: the 1min default lets a boot-time NTP clock step land before the
+# first run, and systemd then drops the one-shot triggers, leaving nothing to
+# anchor OnUnitActiveSec. No Persistent= either: it only applies to OnCalendar=,
+# and the restored last-trigger stamp is what makes systemd drop those triggers.
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target

@@ -7,7 +7,7 @@ Run by the dev-wallpaper.timer systemd user unit.
 import os, random, re, subprocess, sys
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 MONO_B = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 CONFIG = os.path.expanduser("~/.config/dev-wallpaper/config")
