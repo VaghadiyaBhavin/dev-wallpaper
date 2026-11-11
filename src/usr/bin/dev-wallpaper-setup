@@ -115,7 +115,11 @@ RESOLUTION=$RESOLUTION
 EOF
     cat > "$DROPIN_DIR/interval.conf" <<EOF
 [Timer]
+# An empty assignment resets *every* timer of the unit, not just this one, so
+# the boot triggers must be restated or nothing fires after a reboot.
 OnUnitActiveSec=
+OnStartupSec=1min
+OnActiveSec=1min
 OnUnitActiveSec=${INTERVAL}min
 EOF
     migrate_legacy

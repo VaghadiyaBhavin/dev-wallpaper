@@ -8,7 +8,7 @@
 
 *The animated mode "types" the code line by line, right on your desktop — with no video player running in the background.*
 
-![Version](https://img.shields.io/badge/version-1.0.2-blue)
+![Version](https://img.shields.io/badge/version-1.0.3-blue)
 ![Platform](https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian%20%7C%20GNOME-orange)
 ![Package size](https://img.shields.io/badge/.deb-10%20KB-brightgreen)
 ![Idle RAM](https://img.shields.io/badge/idle%20RAM-0%20MB-brightgreen)
@@ -132,7 +132,7 @@ On Ubuntu/Debian, `apt` installs all of these for you automatically.
 ### From the `.deb` package (Ubuntu / Debian)
 
 ```bash
-sudo apt install ./dist/dev-wallpaper_1.0.2_all.deb
+sudo apt install ./dist/dev-wallpaper_1.0.3_all.deb
 ```
 
 > Use `apt install ./file.deb` (not `dpkg -i`) so dependencies are installed automatically.
@@ -141,7 +141,7 @@ sudo apt install ./dist/dev-wallpaper_1.0.2_all.deb
 
 ```bash
 ./build.sh
-sudo apt install ./dist/dev-wallpaper_1.0.2_all.deb
+sudo apt install ./dist/dev-wallpaper_1.0.3_all.deb
 ```
 
 ---
@@ -310,6 +310,9 @@ journalctl --user -u dev-wallpaper.service -n 20
 ```
 
 Force a change now with `dev-wallpaper-setup --now`.
+
+If it stops changing after a reboot and you set it up with version 1.0.2 or
+older, run `dev-wallpaper-setup` once more to rewrite your timer settings.
 </details>
 
 <details>
@@ -365,7 +368,7 @@ dev-wallpaper/
 
 ```bash
 ./build.sh
-# → Install with:  sudo apt install ./dist/dev-wallpaper_1.0.2_all.deb
+# → Install with:  sudo apt install ./dist/dev-wallpaper_1.0.3_all.deb
 ```
 
 The version comes from `src/DEBIAN/control`.
